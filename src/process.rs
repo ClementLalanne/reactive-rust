@@ -70,7 +70,7 @@ pub fn execute_process<P>(p: P) -> P::Value where P:Process {
 }
 
 ///Function value that creates a process that returns the value v.
-pub fn value(v: V) {
+pub fn value<V>(v: V) {
     Value::new(v)
 }
 
@@ -81,7 +81,7 @@ pub struct Value<V> {
     value: V,
 }
 
-impl Value<V> {
+impl<V> Value<V> {
     pub fn new(v: V) -> Self{
         Value{
             value: v,
@@ -121,7 +121,7 @@ impl<P, F, Y> Process for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y +
     }
 }
 
-impl<V> ProcessMut for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y + 'static {
+impl<P,F,Y> ProcessMut for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)> {
         let f = self.map;
         self.process.call_mut(runtime,
@@ -164,23 +164,13 @@ pub struct Flatten<P> {
 }
 
 impl<P> Process for Flatten<P> where P: Process, P::Value: Process {
-    type Value = <P::Value>::Value;
+    type Value = <P::Value as Process>::Value;
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         self.process.call(
             runtime,
             |runtime2: &mut Runtime, v: P::Value|{
                 v.call(runtime2, next)
-            });
-    }
-}
-
-impl<P> ProcessMut for Flatten<P> where P: Process, P::Value: Process {
-    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)>  {
-        self.process.call_mut(
-            runtime,
-            |runtime2: &mut Runtime, v: P::Value|{
-                v.call_mut(runtime2, next)
             });
     }
 }
@@ -208,7 +198,7 @@ pub struct Join<P1, P2>{
 }
 
 impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
-    type Value = (<P1::Value>, <P2::Value>);
+    type Value = (P1::Value, P2::Value);
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(P1::Value, P2::Value)>{
         let join_point_1 = Rc::new(JoinPoint::new(next));
@@ -224,7 +214,7 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
         self.process1.call(
             runtime,
             move |runtime2: &mut Runtime, v2: P2::Value|{
-                join_point_2.return2.set(Some(v1));
+                join_point_2.return2.set(Some(v2));
                 if let Some(v1) = join_point_2.return1.get() {
                     join_point_2.continuation.call(runtime2, (v1, v2))
                 };
