@@ -34,12 +34,12 @@ pub trait Process: 'static {
     }
 
     ///Method and_then equivalent to map and then flatten.
-    fn and_then<F, V2>(self, map: F) where Self: Sized, F: FnOnce(Self::Value) -> V2 + 'static {
+    fn and_then<F, V2>(self, map: F) -> Flatten<Map<Self, F>> where Self: Sized, F: FnOnce(Self::Value) -> V2 + 'static {
         self.map(map).flatten()
     }
 
     ///Method join which takes a process and returns a process which returns the couple of the results of the first process and the second.
-    fn join<P>(self, p: P) where Self: Sized, P: Process{
+    fn join<P>(self, p: P) -> Join<Self, P> where Self: Sized, P: Process {
         Join{
             process1: self,
             process2: p,
@@ -52,6 +52,12 @@ pub trait ProcessMut: Process {
     /// Executes the mutable process in the runtime, then calls `next` with the process and the
     /// process's return value.
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)>;
+
+    fn while_processmut<V>(self) -> While<Self> where Self: Sized{
+        While{
+            process: self,
+        }
+    }
 }
 
 
@@ -70,7 +76,7 @@ pub fn execute_process<P>(p: P) -> P::Value where P:Process {
 }
 
 ///Function value that creates a process that returns the value v.
-pub fn value<V>(v: V) {
+pub fn value<V>(v: V) -> Value<V>{
     Value::new(v)
 }
 
@@ -89,7 +95,7 @@ impl<V> Value<V> {
     }
 }
 
-impl<V> Process for Value<V> {
+impl<V> Process for Value<V> where V : 'static {
     type Value = V;
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value>{
@@ -97,7 +103,7 @@ impl<V> Process for Value<V> {
     }
 }
 
-impl<V> ProcessMut for Value<V> {
+impl<V> ProcessMut for Value<V> where V : 'static{
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)>{
         next.call(runtime, (self, self.value))
     }
@@ -124,7 +130,7 @@ impl<P, F, Y> Process for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y +
 impl<P,F,Y> ProcessMut for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)> {
         let f = self.map;
-        self.process.call_mut(runtime,
+        self.process.call(runtime,
             |runtime2: &mut Runtime, value: P::Value| {
                 next.call(runtime2, (self, f(value)))
         })
@@ -207,7 +213,7 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
             runtime,
             move |runtime2: &mut Runtime, v1: P1::Value|{
                 join_point_1.return1.set(Some(v1));
-                if let Some(v2) = join_point_1.return2.get() {
+                if let Some(v2) = join_point_1.return2.take() {
                     join_point_1.continuation.call(runtime2, (v1, v2))
                 };
             });
@@ -215,7 +221,7 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
             runtime,
             move |runtime2: &mut Runtime, v2: P2::Value|{
                 join_point_2.return2.set(Some(v2));
-                if let Some(v1) = join_point_2.return1.get() {
+                if let Some(v1) = join_point_2.return1.take() {
                     join_point_2.continuation.call(runtime2, (v1, v2))
                 };
             });
@@ -226,3 +232,23 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
 
 /// Indicates if a loop is finished.
 pub enum LoopStatus<V> { Continue, Exit(V) }
+
+pub struct While<P>{
+    process: P,
+}
+
+/*impl<P, V> Process for While<P> where P: ProcessMut, P::Value: LoopStatus<V>{
+    type Value = V;
+
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<V>{
+        self.process.call_mut(
+            runtime,
+            |runtime2: &mut Runtime, (p, val): (ProcessMut, LoopStatus<V>)|{
+                match val{
+                    LoopStatus::Exit(V) => next.call(runtime2, val),
+                    LoopStatus::Continue => p.call_mut(runtime2, next),
+                }
+            }
+        );
+    }
+}*/
