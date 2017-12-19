@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::cell::Cell;
 
 /// The implementation of the trait Process.
-pub trait Process: 'static {
+pub trait Process: 'static{
     ///Type value which is the return type of a process
     type Value;
 
@@ -154,7 +154,7 @@ impl<P> Process for Pause<P> where P: Process{
     }
 }
 
-impl<P> ProcessMut for Pause<P> where P: Process{
+/*impl<P> ProcessMut for Pause<P> where P: ProcessMut{
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)> {
         runtime.on_next_instant(
             Box::new(move |runtime2 : &mut Runtime, val: ()|{
@@ -162,7 +162,7 @@ impl<P> ProcessMut for Pause<P> where P: Process{
             })
         )
     }
-}
+}*/
 
 /// Implementation of the structure needed for the flatten method.
 pub struct Flatten<P> {
@@ -183,16 +183,16 @@ impl<P> Process for Flatten<P> where P: Process, P::Value: Process {
 
 /// Implementation of the structure needed for the join method.
 struct JoinPoint<P1, P2> where P1: Process, P2: Process{
-    return1: Option<P1::Value>,
-    return2: Option<P2::Value>,
-    continuation: Continuation<(P1::Value, P2::Value)>,
+    return1: Box<Cell<Option<P1::Value>>>,
+    return2: Box<Cell<Option<P2::Value>>>,
+    continuation: Box<Continuation<(P1::Value, P2::Value)>>,
 }
 
 impl<P1, P2> JoinPoint<P1, P2> where P1: Process, P2: Process{
-    pub fn new(c: Continuation<(P1::Value, P2::Value)>) -> Self {
+    pub fn new(c: Box<Continuation<(P1::Value, P2::Value)>>) -> Self {
         JoinPoint{
-            return1: Cell::new(None),
-            return2: Cell::new(None),
+            return1: Box::new(Cell::new(None)),
+            return2: Box::new(Cell::new(None)),
             continuation: c,
         }
     }
@@ -207,7 +207,7 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
     type Value = (P1::Value, P2::Value);
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(P1::Value, P2::Value)>{
-        let join_point_1 = Rc::new(JoinPoint::new(next));
+        let join_point_1 = Rc::new(JoinPoint::new(Box<next>));
         let join_point_2 = join_point_1.clone();
         self.process1.call(
             runtime,
@@ -217,7 +217,7 @@ impl<P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process{
                     join_point_1.continuation.call(runtime2, (v1, v2))
                 };
             });
-        self.process1.call(
+        self.process2.call(
             runtime,
             move |runtime2: &mut Runtime, v2: P2::Value|{
                 join_point_2.return2.set(Some(v2));
