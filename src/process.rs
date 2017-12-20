@@ -48,17 +48,18 @@ pub trait Process: 'static + Sized {
     }
 }
 
-/// A process that can be executed multiple times, modifying its environement each time.
-/*pub trait ProcessMut: Process {
+/// A process that can be executed multiple times, modifying its environment each time.
+pub trait ProcessMut: Process {
     /// Executes the mutable process in the runtime, then calls `next` with the process and the
     /// process's return value.
-    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)>;
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where
+        Self: Sized, C: Continuation<(Self, Self::Value)>;
 
-    fn while_processmut<V>(self) -> While<Self> where Self: Sized{
+    /*fn while_processmut<V>(self) -> While<Self> where Self: Sized{
         While{
             process: self,
         }
-    }
+    }*/
 }
 
 
@@ -74,8 +75,10 @@ pub fn execute_process<P>(p: P) -> P::Value where P:Process {
         });
     runtime.execute();
     ref_1_return.take().unwrap()
-}*/
+}
 
+
+/// IMPLEMENTATION OF VALUE
 /// Implementation of the structure needed for the function value.
 pub struct Value<V> {
     value: V,
@@ -97,17 +100,19 @@ impl<V> Value<V> {
 impl<V> Process for Value<V> where V : 'static {
     type Value = V;
 
-    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value>{
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         next.call(runtime, self.value)
     }
 }
 
-/*impl<V> ProcessMut for Value<V> where V : 'static{
+impl<V> ProcessMut for Value<V> where V : 'static + Clone{
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)>{
-        next.call(runtime, (self, self.value))
+        let v = self.value.clone();
+        next.call(runtime, (self, v))
     }
-}*/
+}
 
+/// IMPLEMENTATION OF MAP
 /// Implementation of the structure needed for the map method.
 pub struct Map<P, F> {
     process: P,
@@ -120,22 +125,23 @@ impl<P, F, Y> Process for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y +
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         let f = self.map;
         self.process.call(runtime,
-            |runtime2: &mut Runtime, value: P::Value| {
-                next.call(runtime2, f(value))
-        })
+                          |runtime2: &mut Runtime, value: P::Value| {
+                              next.call(runtime2, f(value))
+                          })
     }
 }
 
-/*impl<P,F,Y> ProcessMut for Map<P, F> where P: Process, F: FnOnce(P::Value) -> Y + 'static {
+impl<P,F,Y> ProcessMut for Map<P, F> where P: ProcessMut, F: FnMut(P::Value) -> Y + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)> {
-        let f = self.map;
-        self.process.call(runtime,
-            |runtime2: &mut Runtime, value: P::Value| {
-                next.call(runtime2, (self, f(value)))
-        })
+        let mut f = self.map;
+        self.process.call_mut(runtime, |runtime2: &mut Runtime, (process, value): (P, P::Value)| {
+            let fv = f(value);
+            next.call(runtime2, (process.map(f), fv))
+        });
     }
-}*/
+}
 
+/// IMPLEMENTATION OF PAUSE
 /// Implementation of the structure needed for the pause method.
 pub struct Pause<P> {
     process: P,
@@ -153,17 +159,17 @@ impl<P> Process for Pause<P> where P: Process{
     }
 }
 
-/*
-/*impl<P> ProcessMut for Pause<P> where P: ProcessMut{
+impl<P> ProcessMut for Pause<P> where P: ProcessMut{
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where Self: Sized, C: Continuation<(Self, Self::Value)> {
         runtime.on_next_instant(
             Box::new(move |runtime2 : &mut Runtime, val: ()|{
-                self.process.call_mut(runtime2, next)
+                self.process.pause().call_mut(runtime2, next)
             })
         )
     }
-}*/
-*/
+}
+
+/// IMPLEMENTATION OF FLATTEN
 /// Implementation of the structure needed for the flatten method.
 pub struct Flatten<P> {
     process: P,
@@ -181,6 +187,8 @@ impl<P> Process for Flatten<P> where P: Process, P::Value: Process {
     }
 }
 
+
+/// IMPLEMENTATION OF JOIN
 /// Implementation of the structure needed for the join method.
 struct JoinPoint<P1, P2> where P1: Process, P2: Process{
     return1: Cell<Option<P1::Value>>,
@@ -235,6 +243,7 @@ impl <P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process {
             });
     }
 }
+
 
 /*
 /// Implementation of the structure needed for the while method.
