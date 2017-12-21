@@ -15,7 +15,21 @@ pub struct SignalRuntimeRef {
 /// Runtime for pure signals.
 struct SignalRuntime {
     is_emited: RefCell<bool>,
+    await: RefCell<Vec<Box<Continuation<()>>>>,
     await_immediate: RefCell<Vec<Box<Continuation<()>>>>,
+    present: RefCell<Vec<Box<Continuation<()>>>>,
+}
+
+impl SignalRuntime {
+    pub fn new() -> Self {
+        Runtime {
+            is_emited: RefCell::new(vec!()),
+            await: RefCell::new(vec!()),
+            await_immediate: RefCell:new(vec!()),
+            present: RefCell<vec!()>
+        }
+    }
+
 }
 
 impl SignalRuntimeRef {
