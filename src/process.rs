@@ -55,11 +55,11 @@ pub trait ProcessMut: Process {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where
         Self: Sized, C: Continuation<(Self, Self::Value)>;
 
-    /*fn while_processmut<V>(self) -> While<Self> where Self: Sized{
+    fn while_processmut<V>(self) -> While<Self> where Self: Sized{
         While{
             process: self,
         }
-    }*/
+    }
 }
 
 
@@ -187,17 +187,27 @@ impl<P> Process for Flatten<P> where P: Process, P::Value: Process {
     }
 }
 
+impl<P> ProcessMut for Flatten<P> where P: ProcessMut, P::Value: Process {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        self.process.call_mut(
+            runtime, |runtime2: &mut Runtime, (p, p_v): (P, P::Value)| {
+            p_v.call(runtime2, |runtime3: &mut Runtime, value: <P::Value as Process>::Value| {
+                next.call(runtime3, (p.flatten(), value));
+            })
+        })
+    }
+}
 
 /// IMPLEMENTATION OF JOIN
 /// Implementation of the structure needed for the join method.
-struct JoinPoint<P1, P2> where P1: Process, P2: Process{
-    return1: Cell<Option<P1::Value>>,
-    return2: Cell<Option<P2::Value>>,
-    continuation: Box<Continuation<(P1::Value, P2::Value)>>,
+struct JoinPoint<V1, V2> {
+    return1: Cell<Option<V1>>,
+    return2: Cell<Option<V2>>,
+    continuation: Box<Continuation<(V1, V2)>>,
 }
 
-impl<P1, P2> JoinPoint<P1, P2> where P1: Process, P2: Process{
-    pub fn new(c: Box<Continuation<(P1::Value, P2::Value)>>) -> Self {
+impl<V1, V2> JoinPoint<V1, V2> {
+    pub fn new(c: Box<Continuation<(V1, V2)>>) -> Self {
         JoinPoint {
             return1: Cell::new(None),
             return2: Cell::new(None),
@@ -211,16 +221,19 @@ pub struct Join<P1, P2>{
     process2: P2,
 }
 
-impl <P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process {
-    type Value = (P1::Value, P2::Value);
-
-    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(P1::Value, P2::Value)> {
-        let join_point_1 : Rc<JoinPoint<P1, P2>> = Rc::new(JoinPoint::new(Box::new(next)));
+impl<P1, P2, V1, V2> Process for Join<P1, P2>
+    where P1: Process<Value = V1>, P2: Process<Value = V2>, V1: 'static, V2: 'static, {
+    type Value = (V1, V2);
+    fn call<C>(self, runtime: &mut Runtime, next: C)
+        where
+            C: Continuation<Self::Value>,
+    {
+        let join_point_1 = Rc::new(JoinPoint::new(Box::new(next)));
         let join_point_2 = join_point_1.clone();
 
         self.process1.call(
             runtime,
-            move |runtime2: &mut Runtime, v1: P1::Value|{
+            move |runtime2: &mut Runtime, v1: V1|{
                 if let Some(v2) = join_point_1.return2.take() {
                     if let Ok(join_point_1) = Rc::try_unwrap(join_point_1) {
                         join_point_1.continuation.call_box(runtime2, (v1, v2));
@@ -228,11 +241,51 @@ impl <P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process {
                 } else {
                     join_point_1.return1.set(Some(v1));
                 }
-        });
-
+            });
         self.process2.call(
             runtime,
-            move |runtime2: &mut Runtime, v2: P2::Value|{
+            move |runtime2: &mut Runtime, v2: V2|{
+                if let Some(v1) = join_point_2.return1.take() {
+                    if let Ok(join_point_2) = Rc::try_unwrap(join_point_2) {
+                        join_point_2.continuation.call_box(runtime2, (v1, v2));
+                    }
+                } else {
+                    join_point_2.return2.set(Some(v2));
+                }
+            });
+    }
+}
+
+impl<P1, P2, V1, V2> ProcessMut for Join<P1, P2> where P1: Process<Value = V1>, P2: Process<Value = V2>,
+                                                       P1: ProcessMut, P2: ProcessMut,
+                                                       V1: 'static, V2: 'static,
+{
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C)
+        where
+            C: Continuation<(Self, Self::Value)>,
+    {
+        let join_point_1 : Rc<JoinPoint<(P1, V1), (P2, V2)>> = Rc::new(JoinPoint::new(
+            Box::new(|r: &mut Runtime, ((p1, v1), (p2, v2)): ((P1, V1), (P2, V2))| {
+            next.call(r, (Join { process1: p1, process2: p2 }, (v1, v2)));
+        })));
+
+        let join_point_2 = join_point_1.clone();
+
+        self.process1.call_mut(
+            runtime,
+            move |runtime2: &mut Runtime, v1: (P1, V1)|{
+                if let Some(v2) = join_point_1.return2.take() {
+                    if let Ok(join_point_1) = Rc::try_unwrap(join_point_1) {
+                        join_point_1.continuation.call_box(runtime2, (v1, v2));
+                    }
+                } else {
+                    join_point_1.return1.set(Some(v1));
+                }
+            });
+
+        self.process2.call_mut(
+            runtime,
+            move |runtime2: &mut Runtime, v2: (P2, V2)|{
                 if let Some(v1) = join_point_2.return1.take() {
                     if let Ok(join_point_2) = Rc::try_unwrap(join_point_2) {
                         join_point_2.continuation.call_box(runtime2, (v1, v2));
@@ -245,7 +298,8 @@ impl <P1, P2> Process for Join<P1, P2> where P1: Process, P2: Process {
 }
 
 
-/*
+
+/// IMPLEMENTATION FOR THE WHILE METHOD
 /// Implementation of the structure needed for the while method.
 
 /// Indicates if a loop is finished.
@@ -253,17 +307,16 @@ pub enum LoopStatus<V> { Continue, Exit(V) }
 
 pub struct While<P>{
     process: P,
-}*/
+}
 
-/*impl<P, V> Process for While<P> where P: ProcessMut, P::Value: LoopStatus<V>{
+/*impl<P, V> Process for While<P> where P: ProcessMut, P: Process<Value = LoopStatus<V>>{
     type Value = V;
-
-    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<V>{
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value>{
         self.process.call_mut(
             runtime,
-            |runtime2: &mut Runtime, (p, val): (ProcessMut, LoopStatus<V>)|{
+            |runtime2: &mut Runtime, (p, val): (P, LoopStatus<V>)|{
                 match val{
-                    LoopStatus::Exit(V) => next.call(runtime2, val),
+                    LoopStatus::Exit(v) => next.call(runtime2, v),
                     LoopStatus::Continue => p.call_mut(runtime2, next),
                 }
             }
