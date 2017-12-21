@@ -5,6 +5,7 @@ use process::ProcessMut;
 use std::rc::Rc;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::mem;
 
 /// A shared pointer to a signal runtime.
 #[derive(Clone)]
@@ -29,13 +30,29 @@ impl SignalRuntime {
             present: RefCell::new(vec!()),
         }
     }
-
 }
 
 impl SignalRuntimeRef {
     /// Sets the signal as emitted f    or the current instant.
     fn emit(self, runtime: &mut Runtime) {
-        unimplemented!() // TODO
+        let mut is_emited = self.runtime.is_emited.borrow_mut();
+        *is_emited = true;
+
+        // AWAIT_IMMEDIATE
+        let mut await_immediate = self.runtime.await_immediate.borrow_mut();
+        while let Some(c) = await_immediate.pop() {
+            runtime.on_current_instant(c);
+        }
+
+        let mut await = self.runtime.await.borrow_mut();
+        while let Some(c) = await.pop() {
+            runtime.on_next_instant(c);
+        }
+
+        let mut present = self.runtime.present.borrow_mut();
+        while let Some(c) = present.pop() {
+            runtime.on_next_instant(c);
+        }
     }
 
     /// Calls `c` at the first cycle where the signal is present.
