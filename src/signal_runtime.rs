@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use continuation::Continuation;
 use runtime::Runtime;
 use process::Process;
+use process::ProcessMut;
 use std::rc::Rc;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -22,7 +22,7 @@ struct SignalRuntime {
 
 impl SignalRuntime {
     pub fn new() -> Self {
-        Runtime {
+        SignalRuntime {
             is_emited: RefCell::new(false),
             await: RefCell::new(vec!()),
             await_immediate: RefCell::new(vec!()),
@@ -33,7 +33,7 @@ impl SignalRuntime {
 }
 
 impl SignalRuntimeRef {
-    /// Sets the signal as emitted for the current instant.
+    /// Sets the signal as emitted f    or the current instant.
     fn emit(self, runtime: &mut Runtime) {
         unimplemented!() // TODO
     }
@@ -60,42 +60,14 @@ pub trait Signal {
     // TODO: add other methods if needed.
 }
 
-struct SimpleSignal{
-    signal_runtime_ref : SignalRuntimeRef
-}
-
-impl Signal for SimpleSignal{
-    fn runtime(self){
-        self.signal_runtime_ref
-    }
-
-    fn await_immediate(self){
-        AwaitImmediate {
-            signal_runtime_ref : self.signal_runtime_ref
-        }
-    }
-}
-
 struct AwaitImmediate {
-    signal_runtime_ref : SignalRuntimeRef
+    // TODO
 }
 
-impl Process for AwaitImmediate {
-    type Value = ();
-
-    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<()> {
-        let f = Box::new(|runtime2: &mut Runtime, ()| {
-            if self.signal_runtime_ref.is_emited {
-                next.call(runtime2, ())
-            }
-            else {
-                runtime2.on_next_instant(f)
-            }
-        });
-        runtime.on_end_of_instant(f)
-    }
+/*impl Process for AwaitImmediate {
+    // TODO
 }
 
 impl ProcessMut for AwaitImmediate {
     // TODO
-}
+}*/
