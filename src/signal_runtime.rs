@@ -23,10 +23,10 @@ struct SignalRuntime {
 impl SignalRuntime {
     pub fn new() -> Self {
         Runtime {
-            is_emited: RefCell::new(vec!()),
+            is_emited: RefCell::new(false),
             await: RefCell::new(vec!()),
-            await_immediate: RefCell:new(vec!()),
-            present: RefCell<vec!()>
+            await_immediate: RefCell::new(vec!()),
+            present: RefCell::new(vec!()),
         }
     }
 
