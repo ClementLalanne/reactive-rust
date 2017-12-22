@@ -8,7 +8,6 @@ use std::cell::RefCell;
 use std::mem;
 
 /// A shared pointer to a signal runtime.
-#[derive(Clone)]
 pub struct SignalRuntimeRef<SIO> where SIO : SignalIO{
     runtime: Rc<SignalRuntime<SIO>>,
 }
@@ -16,12 +15,12 @@ pub struct SignalRuntimeRef<SIO> where SIO : SignalIO{
 pub trait SignalIO {
     type Value;
 
-    fn set(self, v: Self::Value);
-    fn get(self) -> Self::Value;
+    fn set(&self, v: Self::Value);
+    fn get(&self) -> Self::Value;
 }
 
 /// Runtime for pure signals.
-struct SignalRuntime<SIO> where SIO : SignalIO{
+pub struct SignalRuntime<SIO> where SIO : SignalIO{
     is_emited: RefCell<bool>,
     io: SIO,
     await: RefCell<Vec<Box<Continuation<()>>>>,
@@ -29,9 +28,15 @@ struct SignalRuntime<SIO> where SIO : SignalIO{
     present: RefCell<Vec<Box<Continuation<()>>>>,
 }
 
+impl<SIO> Clone for SignalRuntimeRef<SIO> where SIO: SignalIO {
+    fn clone(&self) -> Self {
+        SignalRuntimeRef { runtime: self.runtime.clone() }
+    }
+}
+
 impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
     /// Sets the signal as emitted f    or the current instant.
-    fn emit(self, runtime: &mut Runtime, v: SIO::Value) {
+    fn emit(&self, runtime: &mut Runtime, v: SIO::Value) {
         self.runtime.io.set(v);
         let mut is_emited = self.runtime.is_emited.borrow_mut();
         *is_emited = true;
@@ -121,9 +126,10 @@ impl<SIO> Process for Emit<SIO> where SIO: SignalIO + 'static {
 
 impl<SIO> ProcessMut for Emit<SIO> where SIO: SignalIO + 'static  {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
-        let signal_runtime_ref = self.signal_runtime_ref.clone();
-        signal_runtime_ref.emit(runtime, self.v);
-        next.call(runtime, (self, ()))
+        let signal_runtime_ref1 = self.signal_runtime_ref.clone();
+        let signal_runtime_ref2 = self.signal_runtime_ref.clone();
+        signal_runtime_ref1.emit(runtime, self.v);
+        next.call(runtime, (Emit { v: self.v, signal_runtime_ref: signal_runtime_ref2}, ()))
     }
 }
 
@@ -244,6 +250,12 @@ impl<C1, C2, SIO> Process for Present<C1, C2, SIO> where C1: Continuation<()>, C
 ///IMPLEMENTATION OF SIMPLE SIGNALS
 
 struct SimpleSignal {}
+
+/*impl SignalIO for SimpleSignal {
+    type Value = ();
+
+
+}*/
 
 ///IMPLEMENTATION OF SIGNALS WITH MULTIPLE CONSUMPTION
 
