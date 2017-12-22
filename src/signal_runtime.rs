@@ -183,22 +183,25 @@ impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continu
         }
         else {
             let mut present = self.signal_runtime_ref.runtime.present.borrow_mut();
+            let c1 = self.c1;
+            let c2 = self.c2;
+            let is_present1 = self.is_present.clone();
+            let is_present2 = self.is_present.clone();
             present.push(Box::new(
                 move |runtime2 : &mut Runtime, ()|{
-                    if !*(self.is_present.borrow_mut()){
-                        *(self.is_present.borrow_mut()) = true;
-                        self.c1.call(runtime2, ());
-                        next.call(runtime, ());
+                    if !*(is_present1.borrow_mut()) {
+                        *(is_present1.borrow_mut()) = true;
+                        c1.call(runtime2, ());
                     }
                 }
             ));
             runtime.on_end_of_instant(Box::new(
                 move |runtime2: &mut Runtime, ()|{
-                    if !*(self.is_present.borrow_mut()){
-                        *(self.is_present.borrow_mut()) = true;
+                    if !*(is_present2.borrow_mut()) {
+                        *(is_present2.borrow_mut()) = true;
                         self.c2.call(runtime2, ());
-                        next.call(runtime, ())
                     }
+                    next.call(runtime2, ());
                 })
             )
         }
