@@ -167,21 +167,31 @@ impl Process for Await {
             runtime.on_next_instant(Box::new(next))
         }
         else {
-            let mut await = self.signal_runtime_ref.runtime.await.borrow_mut();
-            await.push(Box::new(next))
+            self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
         }
     }
 }
 
-/*impl ProcessMut for Await {
-    // TODO
-}*/
+impl ProcessMut for Await {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        //let signal = self.signal_runtime_ref.clone();
+        let signal_runtime_ref = self.signal_runtime_ref.clone();
+        let c = Box::new(move |runtime2: &mut Runtime, v: Self::Value| {
+            next.call(runtime2, (Await {signal_runtime_ref}, v))
+        });
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            runtime.on_next_instant(c);
+        } else {
+            self.signal_runtime_ref.runtime.await.borrow_mut().push(c);
+        }
+    }
+}
 
 struct Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
     signal_runtime_ref : SignalRuntimeRef,
     c1 : C1,
     c2 : C2,
-    is_present: RefCell<bool>,
+    is_present: RefCell<bool>,  
 }
 
 impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
