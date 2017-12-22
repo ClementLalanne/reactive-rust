@@ -199,7 +199,7 @@ impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continu
                 move |runtime2: &mut Runtime, ()|{
                     if !*(is_present2.borrow_mut()) {
                         *(is_present2.borrow_mut()) = true;
-                        self.c2.call(runtime2, ());
+                        c2.call(runtime2, ());
                     }
                     next.call(runtime2, ());
                 })
