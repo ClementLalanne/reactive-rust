@@ -185,17 +185,20 @@ impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continu
             let mut present = self.signal_runtime_ref.runtime.present.borrow_mut();
             present.push(Box::new(
                 move |runtime2 : &mut Runtime, ()|{
+                    if !*(self.is_present.borrow_mut()){
                     *(self.is_present.borrow_mut()) = true;
-                    self.c1.call(runtime2, ());
+                    self.c1.call(runtime2, ())
+                    };
                     next.call(runtime, ())
                 }
             ));
             runtime.on_end_of_instant(Box::new(
                 move |runtime2: &mut Runtime, ()|{
                     if !*(self.is_present.borrow_mut()){
-                        self.c2.call(runtime2, ());
-                        next.call(runtime, ())
-                    }
+                        *(self.is_present.borrow_mut()) = true;
+                        self.c2.call(runtime2, ())
+                    };
+                    next.call(runtime, ())
                 })
             )
         }
