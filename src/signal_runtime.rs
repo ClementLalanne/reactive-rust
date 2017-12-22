@@ -134,15 +134,26 @@ impl Process for AwaitImmediate {
             next.call(runtime, ())
         }
         else {
-            let mut await_immediate = self.signal_runtime_ref.runtime.await_immediate.borrow_mut();
-            await_immediate.push(Box::new(next))
+            self.signal_runtime_ref.runtime.await_immediate.borrow_mut().push(Box::new(next))
         }
     }
 }
 
-/*mpl ProcessMut for AwaitImmediate {
-    // TODO
-}*/
+
+impl ProcessMut for AwaitImmediate {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
+            next.call(runtime, (self, ()))
+        } else {
+            let signal = self.signal_runtime_ref.clone();
+            self.signal_runtime_ref.runtime.await_immediate.borrow_mut().push(Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    next.call(runtime2, (AwaitImmediate { signal_runtime_ref: signal}, ()))
+                }
+            ))
+        }
+    }
+}
 
 struct Await {
     signal_runtime_ref : SignalRuntimeRef
