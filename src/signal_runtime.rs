@@ -18,7 +18,7 @@ struct SignalRuntime {
     is_emited: RefCell<bool>,
     await: RefCell<Vec<Box<Continuation<()>>>>,
     await_immediate: RefCell<Vec<Box<Continuation<()>>>>,
-    present: RefCell<Vec<Box<Continuation<()>>>>,
+    present: RefCell<Vec<Box<Continuation<bool>>>>,
 }
 
 impl SignalRuntime {
@@ -51,7 +51,9 @@ impl SignalRuntimeRef {
 
         let mut present = self.runtime.present.borrow_mut();
         while let Some(c) = present.pop() {
-            runtime.on_current_instant(c);
+            runtime.on_current_instant(Box::new(move |runtime2: &mut Runtime, ()| {
+                c.call_box(runtime2, true);
+            }));
         }
     }
 
@@ -93,12 +95,11 @@ pub trait Signal {
         }
     }
 
-    fn present<C1, C2>(self, c1: C1, c2: C2) -> Present<C1, C2>  where C1: Continuation<()>, C2: Continuation<()>, Self: Sized{
+    fn present<P1, P2, V>(self, p1: P1, p2: P2) -> Present<P1, P2>  where P1: Process<Value = V>, P2: Process<Value = V>, Self: Sized{
         Present {
             signal_runtime_ref : self.runtime(),
-            c1,
-            c2,
-            is_present : RefCell::new(false)
+            p1,
+            p2,
         }
     }
 
@@ -139,9 +140,9 @@ impl Process for AwaitImmediate {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
             next.call(runtime, ())
         }
-        else {
-            self.signal_runtime_ref.runtime.await_immediate.borrow_mut().push(Box::new(next))
-        }
+            else {
+                self.signal_runtime_ref.runtime.await_immediate.borrow_mut().push(Box::new(next))
+            }
     }
 }
 
@@ -173,9 +174,9 @@ impl Process for Await {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
             runtime.on_next_instant(Box::new(next))
         }
-        else {
-            self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
-        }
+            else {
+                self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
+            }
     }
 }
 
@@ -194,48 +195,85 @@ impl ProcessMut for Await {
 }
 
 /// IMPLEMENTATION OF PRESENT
-struct Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
-    signal_runtime_ref : SignalRuntimeRef,
-    c1 : C1,
-    c2 : C2,
-    is_present: RefCell<bool>,
+pub struct Present<P1, P2> {
+    signal_runtime_ref: SignalRuntimeRef,
+    p1: P1,
+    p2: P2,
 }
 
-impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
-    type Value = ();
+impl<P1, P2, V> Process for Present<P1, P2> where P1: Process<Value = V>, P2: Process<Value = V> {
+    type Value = V;
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
-        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
-            self.c1.call(runtime, ());
-            next.call(runtime, ())
-        }
-        else {
-            let mut present = self.signal_runtime_ref.runtime.present.borrow_mut();
-            let c1 = self.c1;
-            let c2 = self.c2;
-            let is_present1 = self.is_present.clone();
-            let is_present2 = self.is_present.clone();
-            present.push(Box::new(
-                move |runtime2 : &mut Runtime, ()|{
-                    if !*(is_present1.borrow_mut()) {
-                        *(is_present1.borrow_mut()) = true;
-                        c1.call(runtime2, ());
+        let p1 = self.p1;
+        let p2 = self.p2;
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            p1.call(runtime, next)
+        } else {
+            let c = Box::new(
+                move |runtime2: &mut Runtime, emited: bool| {
+                    if emited {
+                        p1.call(runtime2, next);
+                    } else {
+                        p2.call(runtime2, next);
                     }
                 }
-            ));
-            runtime.on_end_of_instant(Box::new(
-                move |runtime2: &mut Runtime, ()|{
-                    if !*(is_present2.borrow_mut()) {
-                        *(is_present2.borrow_mut()) = true;
-                        c2.call(runtime2, ());
+            );
+            self.signal_runtime_ref.runtime.present.borrow_mut().push(c);
+
+            let sig = self.signal_runtime_ref.clone();
+            let c2 = Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    let mut present = sig.runtime.present.borrow_mut();
+                    while let Some(c) = present.pop() {
+                        c.call_box(runtime2, false);
                     }
-                    next.call(runtime2, ());
-                })
-            )
+                }
+            );
+            runtime.on_end_of_instant(c2);
         }
     }
 }
 
-/*impl ProcessMut for Present {
-    // TODO
-}*/
+impl<P1, P2, V> ProcessMut for Present<P1, P2> where P1: ProcessMut<Value = V>, P2: ProcessMut<Value = V> {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        let signal = self.signal_runtime_ref.clone();
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let p2 = self.p2;
+            let c = |runtime2: &mut Runtime, (process, value): (P1, P1::Value)| {
+                next.call(runtime2, (Present { signal_runtime_ref: signal, p1: process, p2 }, value))
+            };
+            self.p1.call_mut(runtime, c);
+        } else {
+            let sig = self.signal_runtime_ref.clone();
+            let c = Box::new(
+                move |runtime2: &mut Runtime, emited: bool| {
+                    if emited {
+                        let p2 = self.p2;
+                        let c2 = |runtime2: &mut Runtime, (process, value): (P1, P1::Value)| {
+                            next.call(runtime2, (Present { signal_runtime_ref: signal, p1: process, p2 }, value))
+                        };
+                        self.p1.call_mut(runtime2, c2);
+                    } else {
+                        let p1 = self.p1;
+                        let c2 = |runtime2: &mut Runtime, (process, value): (P2, P2::Value)| {
+                            next.call(runtime2, (Present { signal_runtime_ref: signal, p1, p2: process }, value))
+                        };
+                        self.p2.call_mut(runtime2, c2);
+                    }
+                }
+            );
+            sig.runtime.present.borrow_mut().push(c);
+
+            let c2 = Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    let mut present = sig.runtime.present.borrow_mut();
+                    while let Some(c) = present.pop() {
+                        c.call_box(runtime2, false);
+                    }
+                }
+            );
+            runtime.on_end_of_instant(c2);
+        }
+    }
+}
