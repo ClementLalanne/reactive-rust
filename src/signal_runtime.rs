@@ -96,8 +96,8 @@ pub trait Signal {
     fn present<C1, C2>(self, c1: C1, c2: C2) -> Present<C1, C2>  where C1: Continuation<()>, C2: Continuation<()>, Self: Sized{
         Present {
             signal_runtime_ref : self.runtime(),
-            c1 : c1,
-            c2 : c2,
+            c1,
+            c2,
             is_present : RefCell::new(false)
         }
     }
@@ -105,6 +105,7 @@ pub trait Signal {
     // TODO: add other methods if needed.
 }
 
+/// IMPLEMENTATION OF EMIT
 struct Emit {
     signal_runtime_ref : SignalRuntimeRef
 }
@@ -118,10 +119,15 @@ impl Process for Emit {
     }
 }
 
-/*impl ProcessMut for Emit {
-    // TODO
-}*/
+impl ProcessMut for Emit {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        let signal_runtime_ref = self.signal_runtime_ref.clone();
+        signal_runtime_ref.emit(runtime);
+        next.call(runtime, (self, ()))
+    }
+}
 
+/// IMPLEMENTATION OF AWAIT_IMMEDIATE
 struct AwaitImmediate {
     signal_runtime_ref : SignalRuntimeRef
 }
@@ -155,6 +161,7 @@ impl ProcessMut for AwaitImmediate {
     }
 }
 
+/// IMPLEMENTATION OF AWAIT
 struct Await {
     signal_runtime_ref : SignalRuntimeRef
 }
@@ -174,7 +181,6 @@ impl Process for Await {
 
 impl ProcessMut for Await {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
-        //let signal = self.signal_runtime_ref.clone();
         let signal_runtime_ref = self.signal_runtime_ref.clone();
         let c = Box::new(move |runtime2: &mut Runtime, v: Self::Value| {
             next.call(runtime2, (Await {signal_runtime_ref}, v))
@@ -187,11 +193,12 @@ impl ProcessMut for Await {
     }
 }
 
+/// IMPLEMENTATION OF PRESENT
 struct Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
     signal_runtime_ref : SignalRuntimeRef,
     c1 : C1,
     c2 : C2,
-    is_present: RefCell<bool>,  
+    is_present: RefCell<bool>,
 }
 
 impl<C1, C2> Process for Present<C1, C2> where C1: Continuation<()>, C2: Continuation<()> {
