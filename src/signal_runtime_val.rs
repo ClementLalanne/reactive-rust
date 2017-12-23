@@ -8,12 +8,12 @@ use std::cell::RefCell;
 use std::mem;
 
 /// A shared pointer to a signal runtime.
-pub struct SignalRuntimeRef<SIO> where SIO : SignalIO{
+pub struct SignalRuntimeRef<SIO> where SIO : SignalIO {
     runtime: Rc<SignalRuntime<SIO>>,
 }
 
 pub trait SignalIO {
-    type Value;
+    type Value ;
 
     fn set(&self, v: Self::Value);
     fn get(&self) -> Self::Value;
@@ -24,8 +24,10 @@ pub struct SignalRuntime<SIO> where SIO : SignalIO{
     is_emited: RefCell<bool>,
     io: SIO,
     await: RefCell<Vec<Box<Continuation<()>>>>,
+    await_in: RefCell<Vec<Box<Continuation<SIO::Value>>>>,
     await_immediate: RefCell<Vec<Box<Continuation<()>>>>,
-    present: RefCell<Vec<Box<Continuation<()>>>>,
+    await_immediate_in: RefCell<Vec<Box<Continuation<SIO::Value>>>>,
+    present: RefCell<Vec<Box<Continuation<bool>>>>,
 }
 
 impl<SIO> Clone for SignalRuntimeRef<SIO> where SIO: SignalIO {
@@ -47,14 +49,35 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
             runtime.on_current_instant(c);
         }
 
+
+        let mut await_immediate_in = self.runtime.await_immediate_in.borrow_mut();
+        while let Some(c) = await_immediate_in.pop() {
+            let v = self.runtime.io.get();
+            let c2 = Box::new(move |runtime2 : &mut Runtime, ()| {
+                c.call_box(runtime2, v);
+            });
+            runtime.on_current_instant(c2)
+        }
+
         let mut await = self.runtime.await.borrow_mut();
         while let Some(c) = await.pop() {
             runtime.on_next_instant(c);
         }
 
+        let mut await_in = self.runtime.await_in.borrow_mut();
+        while let Some(c) = await_in.pop() {
+            let v = self.runtime.io.get();
+            let c2 = Box::new(move |runtime2 : &mut Runtime, ()| {
+                c.call_box(runtime2, v);
+            });
+            runtime.on_next_instant(c2);
+        }
+
         let mut present = self.runtime.present.borrow_mut();
         while let Some(c) = present.pop() {
-            runtime.on_current_instant(c);
+            runtime.on_current_instant(Box::new(move |runtime2: &mut Runtime, ()| {
+                c.call_box(runtime2, true);
+            }));
         }
     }
 
@@ -76,9 +99,9 @@ pub trait Signal<SIO> where SIO: SignalIO {
     /// Returns a reference to the signal's runtime.
     fn runtime(self) -> SignalRuntimeRef<SIO>;
 
-    fn emit(self, v: SIO::Value) -> Emit<SIO> where Self: Sized {
+    fn emit<P>(self, p: P) -> Emit<SIO, P> where Self: Sized, P: ProcessMut<Value = SIO::Value> {
         Emit {
-            v: v,
+            p,
             signal_runtime_ref : self.runtime(),
         }
     }
@@ -91,18 +114,29 @@ pub trait Signal<SIO> where SIO: SignalIO {
         }
     }
 
+    fn await_immediate_in(self) -> AwaitImmediateIn<SIO> where Self: Sized {
+        AwaitImmediateIn {
+            signal_runtime_ref : self.runtime()
+        }
+    }
+
     fn await(self) -> Await<SIO> where Self: Sized {
         Await {
             signal_runtime_ref : self.runtime()
         }
     }
 
-    fn present<C1, C2>(self, c1: C1, c2: C2) -> Present<C1, C2, SIO>  where C1: Continuation<()>, C2: Continuation<()>, SIO: SignalIO, Self: Sized{
+    /*fn await_in(self) -> AwaitIn<SIO> where Self: Sized {
+        AwaitIn {
+            signal_runtime_ref : self.runtime()
+        }
+    }*/
+
+    fn present<P1, P2, V>(self, p1: P1, p2: P2) -> Present<SIO, P1, P2>  where P1: Process<Value = V>, P2: Process<Value = V>, Self: Sized{
         Present {
             signal_runtime_ref : self.runtime(),
-            c1,
-            c2,
-            is_present : RefCell::new(false)
+            p1,
+            p2,
         }
     }
 
@@ -110,26 +144,32 @@ pub trait Signal<SIO> where SIO: SignalIO {
 }
 
 /// IMPLEMENTATION OF EMIT
-struct Emit<SIO> where SIO: SignalIO {
-    v: SIO::Value,
+struct Emit<SIO, P> where SIO: SignalIO {
+    p: P,
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
 
-impl<SIO> Process for Emit<SIO> where SIO: SignalIO + 'static {
-    type Value = ();
+impl<SIO, P> Process for Emit<SIO, P> where SIO: SignalIO + 'static, P: Process<Value = SIO::Value> {
+type Value = ();
 
-    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
-        self.signal_runtime_ref.emit(runtime, self.v);
-        next.call(runtime, ())
+fn call<C> ( self, runtime: & mut Runtime, next: C) where C: Continuation<Self::Value > {
+    let signal = self.signal_runtime_ref;
+    self.p.call(runtime, move |runtime2: &mut Runtime, v: SIO::Value| {
+        signal.emit(runtime2, v);
+        next.call(runtime2, ())
+    })
     }
 }
 
-impl<SIO> ProcessMut for Emit<SIO> where SIO: SignalIO + 'static  {
+impl<SIO, P> ProcessMut for Emit<SIO, P> where SIO: SignalIO + 'static, P: ProcessMut<Value = SIO::Value> {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
-        let signal_runtime_ref1 = self.signal_runtime_ref.clone();
-        let signal_runtime_ref2 = self.signal_runtime_ref.clone();
-        signal_runtime_ref1.emit(runtime, self.v);
-        next.call(runtime, (Emit { v: self.v, signal_runtime_ref: signal_runtime_ref2}, ()))
+        let signal_runtime_ref = self.signal_runtime_ref.clone();
+        let signal = self.signal_runtime_ref;
+
+        self.p.call_mut(runtime, move |runtime2: &mut Runtime, (p, v): (P, P::Value)| {
+            signal.emit(runtime2, v);
+            next.call(runtime2, (Emit{signal_runtime_ref, p}, ()))
+        })
     }
 }
 
@@ -142,7 +182,7 @@ impl<SIO> Process for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     type Value = ();
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
-        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
             next.call(runtime, ())
         }
         else {
@@ -154,7 +194,7 @@ impl<SIO> Process for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
 
 impl<SIO> ProcessMut for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
-        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
             next.call(runtime, (self, ()))
         } else {
             let signal = self.signal_runtime_ref.clone();
@@ -163,6 +203,42 @@ impl<SIO> ProcessMut for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
                     next.call(runtime2, (AwaitImmediate { signal_runtime_ref: signal}, ()))
                 }
             ))
+        }
+    }
+}
+
+/// IMPLEMENTATION OF AWAIT_IMMEDIATE_IN
+struct AwaitImmediateIn<SIO> where SIO: SignalIO{
+    signal_runtime_ref : SignalRuntimeRef<SIO>
+}
+
+impl<SIO> Process for AwaitImmediateIn<SIO> where SIO: SignalIO + 'static {
+    type Value = SIO::Value;
+
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let v = self.signal_runtime_ref.runtime.io.get();
+            next.call(runtime, v);
+        } else {
+            let c2 = Box::new(move |runtime2: &mut Runtime, v: SIO::Value| {
+                next.call(runtime2, v)
+            });
+            self.signal_runtime_ref.runtime.await_immediate_in.borrow_mut().push(c2)
+        }
+    }
+}
+
+impl<SIO> ProcessMut for AwaitImmediateIn<SIO> where SIO: SignalIO + 'static {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let v = self.signal_runtime_ref.runtime.io.get();
+            next.call(runtime, (self, v))
+        } else {
+            let signal_runtime_ref = self.signal_runtime_ref.clone();
+            let c2 = Box::new(move |runtime2: &mut Runtime, v: SIO::Value| {
+                next.call(runtime2, (AwaitImmediateIn {signal_runtime_ref}, v))
+            });
+            self.signal_runtime_ref.runtime.await_immediate_in.borrow_mut().push(c2);
         }
     }
 }
@@ -178,8 +254,7 @@ impl<SIO> Process for Await <SIO> where SIO: SignalIO + 'static{
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
             runtime.on_next_instant(Box::new(next))
-        }
-        else {
+        } else {
             self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
         }
     }
@@ -200,14 +275,13 @@ impl<SIO> ProcessMut for Await <SIO> where SIO: SignalIO + 'static{
 }
 
 /// IMPLEMENTATION OF PRESENT
-struct Present<C1, C2, SIO> where C1: Continuation<()>, C2: Continuation<()>, SIO: SignalIO {
-    signal_runtime_ref : SignalRuntimeRef<SIO>,
-    c1 : C1,
-    c2 : C2,
-    is_present: RefCell<bool>,
+pub struct Present<SIO, P1, P2> where SIO: SignalIO + 'static {
+    signal_runtime_ref: SignalRuntimeRef<SIO>,
+    p1: P1,
+    p2: P2,
 }
 
-impl<C1, C2, SIO> Process for Present<C1, C2, SIO> where C1: Continuation<()>, C2: Continuation<()>, SIO: SignalIO + 'static {
+/*impl<C1, C2, SIO> Process for Present<C1, C2, SIO> where C1: Continuation<()>, C2: Continuation<()>, SIO: SignalIO + 'static {
     type Value = ();
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
@@ -240,7 +314,7 @@ impl<C1, C2, SIO> Process for Present<C1, C2, SIO> where C1: Continuation<()>, C
             )
         }
     }
-}
+}*/
 
 /*impl ProcessMut for Present {
     // TODO

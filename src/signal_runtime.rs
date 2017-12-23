@@ -173,10 +173,9 @@ impl Process for Await {
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
             runtime.on_next_instant(Box::new(next))
+        } else {
+            self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
         }
-            else {
-                self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
-            }
     }
 }
 
