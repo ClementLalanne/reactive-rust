@@ -1,3 +1,4 @@
+/// IMPLEMENTATION DES PROCESS
 use continuation::Continuation;
 use runtime::Runtime;
 use std::rc::Rc;
@@ -5,13 +6,13 @@ use std::cell::Cell;
 
 /// The implementation of the trait Process.
 pub trait Process: 'static + Sized {
-    ///Type value which is the return type of a process
+    /// Type value which is the return type of a process
     type Value;
 
-    ///Method call which execute the process in the given runtime and executes the continuation C on the return of the process.
+    /// Method call which execute the process in the given runtime and executes the continuation C on the return of the process.
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value>;
 
-    ///Method map which transforms the process in a new process which applies the function map to the result of the initial process.
+    /// Method map which transforms the process in a new process which applies the function map to the result of the initial process.
     fn map<F, V2>(self, map: F) -> Map<Self, F> where Self: Sized, F: FnOnce(Self::Value) -> V2 + 'static {
         Map {
             process: self,
@@ -19,22 +20,21 @@ pub trait Process: 'static + Sized {
         }
     }
 
-    ///Method pause which pauses on the current instant and starts again on the next instant.
+    /// Method pause which pauses on the current instant and starts again on the next instant.
     fn pause(self) -> Pause<Self> where Self: Sized {
         Pause {
             process: self
         }
     }
 
-    ///Method flatten which transforms a process that returns a process in a new process that executes the process and executes its result.
+    /// Method flatten which transforms a process that returns a process in a new process that executes the process and executes its result.
     fn flatten(self)-> Flatten<Self> where Self: Sized {
         Flatten {
             process: self,
         }
     }
 
-
-    ///Method and_then equivalent to map and then flatten.
+    /// Method and_then equivalent to map and then flatten.
     fn and_then<F, V2>(self, map: F) -> Flatten<Map<Self, F>> where Self: Sized, F: FnOnce(Self::Value) -> V2 + 'static {
         self.map(map).flatten()
     }
@@ -48,18 +48,13 @@ pub trait Process: 'static + Sized {
     }
 }
 
+
 /// A process that can be executed multiple times, modifying its environment each time.
 pub trait ProcessMut: Process {
     /// Executes the mutable process in the runtime, then calls `next` with the process and the
     /// process's return value.
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where
         Self: Sized, C: Continuation<(Self, Self::Value)>;
-
-    fn while_processmut<V>(self) -> While<Self> where Self: Sized{
-        While{
-            process: self,
-        }
-    }
 }
 
 
@@ -78,17 +73,13 @@ pub fn execute_process<P>(p: P) -> P::Value where P:Process {
 }
 
 
-/// IMPLEMENTATION OF VALUE
+/// IMPLEMENTATION OF VALUE, A PROCESS THAT RETURN THE VALUE
 /// Implementation of the structure needed for the function value.
 pub struct Value<V> {
     value: V,
 }
 
 ///Function value that creates a process that returns the value v.
-pub fn value<V>(v: V) -> Value<V>{
-    Value::new(v)
-}
-
 impl<V> Value<V> {
     pub fn new(v: V) -> Self{
         Value{
@@ -99,7 +90,6 @@ impl<V> Value<V> {
 
 impl<V> Process for Value<V> where V : 'static {
     type Value = V;
-
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         next.call(runtime, self.value)
     }
@@ -112,7 +102,7 @@ impl<V> ProcessMut for Value<V> where V : 'static + Clone{
     }
 }
 
-/// IMPLEMENTATION OF MAP
+/// IMPLEMENTATION OF MAP TO APPLY A FUNCTION TO THE RETURN VALUE
 /// Implementation of the structure needed for the map method.
 pub struct Map<P, F> {
     process: P,
@@ -141,7 +131,7 @@ impl<P,F,Y> ProcessMut for Map<P, F> where P: ProcessMut, F: FnMut(P::Value) -> 
     }
 }
 
-/// IMPLEMENTATION OF PAUSE
+/// IMPLEMENTATION OF PAUSE TO WAIT THE NEXT INSTANT
 /// Implementation of the structure needed for the pause method.
 pub struct Pause<P> {
     process: P,
@@ -169,7 +159,7 @@ impl<P> ProcessMut for Pause<P> where P: ProcessMut{
     }
 }
 
-/// IMPLEMENTATION OF FLATTEN
+/// IMPLEMENTATION OF FLATTEN TO EXECUTE THE PROCESS RETURNED BY ANOTHER PROCESS
 /// Implementation of the structure needed for the flatten method.
 pub struct Flatten<P> {
     process: P,
@@ -198,7 +188,7 @@ impl<P> ProcessMut for Flatten<P> where P: ProcessMut, P::Value: Process {
     }
 }
 
-/// IMPLEMENTATION OF JOIN
+/// IMPLEMENTATION OF JOIN FOR PARALLEL COMPOSITION
 /// Implementation of the structure needed for the join method.
 struct JoinPoint<V1, V2> {
     return1: Cell<Option<V1>>,
@@ -221,16 +211,16 @@ pub struct Join<P1, P2>{
     process2: P2,
 }
 
-impl<P1, P2, V1, V2> Process for Join<P1, P2>
-    where P1: Process<Value = V1>, P2: Process<Value = V2>, V1: 'static, V2: 'static, {
+impl<P1, P2, V1, V2> Process for Join<P1, P2> where P1: Process<Value = V1>, P2: Process<Value = V2>, V1: 'static, V2: 'static, {
+
     type Value = (V1, V2);
-    fn call<C>(self, runtime: &mut Runtime, next: C)
-        where
-            C: Continuation<Self::Value>,
-    {
+
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
         let join_point_1 = Rc::new(JoinPoint::new(Box::new(next)));
         let join_point_2 = join_point_1.clone();
 
+        // In process1 call, if process2 is already finished we call the continuation otherwise we just
+        // store the value in JoinPoint for process2 to get the return of process1
         self.process1.call(
             runtime,
             move |runtime2: &mut Runtime, v1: V1|{
@@ -242,6 +232,7 @@ impl<P1, P2, V1, V2> Process for Join<P1, P2>
                     join_point_1.return1.set(Some(v1));
                 }
             });
+        // Same idea as above
         self.process2.call(
             runtime,
             move |runtime2: &mut Runtime, v2: V2|{
@@ -258,16 +249,13 @@ impl<P1, P2, V1, V2> Process for Join<P1, P2>
 
 impl<P1, P2, V1, V2> ProcessMut for Join<P1, P2> where P1: Process<Value = V1>, P2: Process<Value = V2>,
                                                        P1: ProcessMut, P2: ProcessMut,
-                                                       V1: 'static, V2: 'static,
-{
-    fn call_mut<C>(self, runtime: &mut Runtime, next: C)
-        where
-            C: Continuation<(Self, Self::Value)>,
-    {
+                                                       V1: 'static, V2: 'static, {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
         let join_point_1 : Rc<JoinPoint<(P1, V1), (P2, V2)>> = Rc::new(JoinPoint::new(
             Box::new(|r: &mut Runtime, ((p1, v1), (p2, v2)): ((P1, V1), (P2, V2))| {
                 next.call(r, (Join { process1: p1, process2: p2 }, (v1, v2)));
-            })));
+            }))
+        );
 
         let join_point_2 = join_point_1.clone();
 
@@ -282,7 +270,6 @@ impl<P1, P2, V1, V2> ProcessMut for Join<P1, P2> where P1: Process<Value = V1>, 
                     join_point_1.return1.set(Some(v1));
                 }
             });
-
         self.process2.call_mut(
             runtime,
             move |runtime2: &mut Runtime, v2: (P2, V2)|{
@@ -297,9 +284,7 @@ impl<P1, P2, V1, V2> ProcessMut for Join<P1, P2> where P1: Process<Value = V1>, 
     }
 }
 
-
-
-/// IMPLEMENTATION FOR THE WHILE METHOD
+/// IMPLEMENTATION FOR THE WHILE METHOD TO CALL A PROCESS
 /// Implementation of the structure needed for the while method.
 
 /// Indicates if a loop is finished.
@@ -309,6 +294,8 @@ pub struct While<P>{
     process: P,
 }
 
+/// We just call the process_mut, if the return value of this process is exit, we stop the loop (with
+/// a new exit value) otherwise we got for one more loop at least.
 impl<P, V> Process for While<P> where P: ProcessMut, P: Process<Value = LoopStatus<V>>{
     type Value = V;
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value>{
