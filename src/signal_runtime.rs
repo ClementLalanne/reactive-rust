@@ -102,8 +102,6 @@ pub trait Signal {
             p2,
         }
     }
-
-    // TODO: add other methods if needed.
 }
 
 /// IMPLEMENTATION OF EMIT

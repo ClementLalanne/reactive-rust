@@ -37,6 +37,20 @@ impl<SIO> Clone for SignalRuntimeRef<SIO> where SIO: SignalIO {
 }
 
 impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
+    pub fn new(io: SIO) -> Self {
+        let runtime = SignalRuntime {
+            is_emited: RefCell::new(false),
+            io,
+            await: RefCell::new(vec!()),
+            await_in: RefCell::new(vec!()),
+            await_immediate: RefCell::new(vec!()),
+            await_immediate_in: RefCell::new(vec!()),
+            present: RefCell::new(vec!()),
+        };
+
+        SignalRuntimeRef { runtime: Rc::new(runtime) }
+    }
+
     /// Sets the signal as emitted for the current instant.
     fn emit(&self, runtime: &mut Runtime, v: SIO::Value) {
         let self_clone = self.clone();
@@ -157,14 +171,14 @@ struct Emit<SIO, P> where SIO: SignalIO {
 }
 
 impl<SIO, P> Process for Emit<SIO, P> where SIO: SignalIO + 'static, P: Process<Value = SIO::Value> {
-type Value = ();
+    type Value = ();
 
-fn call<C> ( self, runtime: & mut Runtime, next: C) where C: Continuation<Self::Value > {
-    let signal = self.signal_runtime_ref;
-    self.p.call(runtime, move |runtime2: &mut Runtime, v: SIO::Value| {
-        signal.emit(runtime2, v);
-        next.call(runtime2, ())
-    })
+    fn call<C> ( self, runtime: & mut Runtime, next: C) where C: Continuation<Self::Value > {
+        let signal = self.signal_runtime_ref;
+        self.p.call(runtime, move |runtime2: &mut Runtime, v: SIO::Value| {
+            signal.emit(runtime2, v);
+            next.call(runtime2, ())
+        })
     }
 }
 
@@ -181,7 +195,7 @@ impl<SIO, P> ProcessMut for Emit<SIO, P> where SIO: SignalIO + 'static, P: Proce
 }
 
 /// IMPLEMENTATION OF AWAIT_IMMEDIATE
-struct AwaitImmediate<SIO> where SIO: SignalIO{
+pub struct AwaitImmediate<SIO> where SIO: SignalIO{
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
 
@@ -215,7 +229,7 @@ impl<SIO> ProcessMut for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
 }
 
 /// IMPLEMENTATION OF AWAIT_IMMEDIATE_IN
-struct AwaitImmediateIn<SIO> where SIO: SignalIO{
+pub struct AwaitImmediateIn<SIO> where SIO: SignalIO{
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
 
@@ -251,7 +265,7 @@ impl<SIO> ProcessMut for AwaitImmediateIn<SIO> where SIO: SignalIO + 'static {
 }
 
 /// IMPLEMENTATION OF AWAIT
-struct Await<SIO> where SIO: SignalIO {
+pub struct Await<SIO> where SIO: SignalIO {
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
 
@@ -282,7 +296,7 @@ impl<SIO> ProcessMut for Await <SIO> where SIO: SignalIO + 'static{
 }
 
 /// IMPLEMENTATION AWAIT_IN
-struct AwaitIn<SIO> where SIO: SignalIO {
+pub struct AwaitIn<SIO> where SIO: SignalIO {
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
 
@@ -419,10 +433,19 @@ struct SimpleSignal {}
 }*/
 
 ///IMPLEMENTATION OF SIGNALS WITH MULTIPLE CONSUMPTION
-
-struct MCSignal<V> {
+pub struct MCSignal<V> {
     value: RefCell<V>,
     default_value: V,
+}
+
+impl<V> MCSignal<V>
+    where V: Clone {
+    pub fn new(default_value: V) -> MCSignal<V> {
+        MCSignal {
+            value: RefCell::new(default_value.clone()),
+            default_value,
+        }
+    }
 }
 
 impl<V> SignalIO for MCSignal<V> where V: Clone{
@@ -440,6 +463,22 @@ impl<V> SignalIO for MCSignal<V> where V: Clone{
     }
 }
 
-///IMPLEMENTATION OF SIGNALS WITH SIMPLE CONSUMPTION
+pub struct PureMCSignal<V> where V: SignalIO{
+    signal: SignalRuntimeRef<V>,
+}
+
+impl<V> PureMCSignal<V> where V: SignalIO + 'static {
+    pub fn new(v: V) -> Self {
+        let signal = SignalRuntimeRef::new(v);
+        PureMCSignal {
+            signal,
+        }
+    }
+}
+impl<V> Signal<V> for PureMCSignal<V> where V: SignalIO{
+    fn runtime(self) -> SignalRuntimeRef<V> {
+        self.signal.clone()
+    }
+}
 
 struct SCSignal {}
