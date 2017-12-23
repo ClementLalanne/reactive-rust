@@ -17,6 +17,7 @@ pub trait SignalIO {
 
     fn set(&self, v: Self::Value);
     fn get(&self) -> Self::Value;
+    fn reset_value(&self);
 }
 
 /// Runtime for pure signals.
@@ -31,14 +32,14 @@ pub struct SignalRuntime<SIO> where SIO : SignalIO{
 }
 
 impl<SIO> Clone for SignalRuntimeRef<SIO> where SIO: SignalIO {
-    fn clone(&self) -> Self {
-        SignalRuntimeRef { runtime: self.runtime.clone() }
+    fn clone(&self) -> Self { SignalRuntimeRef { runtime: self.runtime.clone() }
     }
 }
 
 impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
-    /// Sets the signal as emitted f    or the current instant.
+    /// Sets the signal as emitted for the current instant.
     fn emit(&self, runtime: &mut Runtime, v: SIO::Value) {
+        let self_clone = self.clone();
         self.runtime.io.set(v);
         let mut is_emited = self.runtime.is_emited.borrow_mut();
         *is_emited = true;
@@ -48,6 +49,7 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
         while let Some(c) = await_immediate.pop() {
             runtime.on_current_instant(c);
         }
+
 
 
         let mut await_immediate_in = self.runtime.await_immediate_in.borrow_mut();
@@ -79,6 +81,14 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
                 c.call_box(runtime2, true);
             }));
         }
+
+        // ON REMET IS_EMITED À FALSE POUR NE PAS AVOIR DE PROBLEME À L'INSTANT SUIVANT
+        let c_close = move |runtime2: &mut Runtime, ()| {
+            let mut is_emited2 = self_clone.runtime.is_emited.borrow_mut();
+            *is_emited2 = false;
+            self_clone.runtime.io.reset_value();
+        };
+        runtime.on_end_of_instant(Box::new(c_close));
     }
 
     /// Calls `c` at the first cycle where the signal is present.
@@ -89,9 +99,6 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
             self.runtime.await_immediate.borrow_mut().push(Box::new(c));
         }
     }
-
-
-    // TODO: add other methods when needed.
 }
 
 /// A reactive signal.
@@ -274,6 +281,7 @@ impl<SIO> ProcessMut for Await <SIO> where SIO: SignalIO + 'static{
     }
 }
 
+/// IMPLEMENTATION AWAIT_IN
 struct AwaitIn<SIO> where SIO: SignalIO {
     signal_runtime_ref : SignalRuntimeRef<SIO>
 }
@@ -296,6 +304,22 @@ impl<SIO> Process for AwaitIn <SIO> where SIO: SignalIO + 'static{
             });
             self.signal_runtime_ref.runtime.await_in.borrow_mut().push(c2)
         }
+
+    }
+}
+
+impl<SIO> ProcessMut for AwaitIn<SIO> where SIO: SignalIO + 'static {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let v = self.signal_runtime_ref.runtime.io.get();
+            next.call(runtime, (self, v));
+        } else {
+            let signal_runtime_ref = self.signal_runtime_ref.clone();
+            let c2 = Box::new(move |runtime2: &mut Runtime, v: SIO::Value| {
+                next.call(runtime2, (AwaitIn {signal_runtime_ref}, v))
+            });
+            self.signal_runtime_ref.runtime.await_in.borrow_mut().push(c2);
+        }
     }
 }
 
@@ -306,43 +330,87 @@ pub struct Present<SIO, P1, P2> where SIO: SignalIO + 'static {
     p2: P2,
 }
 
-/*impl<C1, C2, SIO> Process for Present<C1, C2, SIO> where C1: Continuation<()>, C2: Continuation<()>, SIO: SignalIO + 'static {
-    type Value = ();
+/*pub struct Present<P1, P2> {
+    signal_runtime_ref: SignalRuntimeRef,
+    p1: P1,
+    p2: P2,
+}
+
+impl<P1, P2, V> Process for Present<P1, P2> where P1: Process<Value = V>, P2: Process<Value = V> {
+    type Value = V;
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
-        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
-            self.c1.call(runtime, ());
-            next.call(runtime, ())
-        }
-        else {
-            let mut present = self.signal_runtime_ref.runtime.present.borrow_mut();
-            let c1 = self.c1;
-            let c2 = self.c2;
-            let is_present1 = self.is_present.clone();
-            let is_present2 = self.is_present.clone();
-            present.push(Box::new(
-                move |runtime2 : &mut Runtime, ()|{
-                    if !*(is_present1.borrow_mut()) {
-                        *(is_present1.borrow_mut()) = true;
-                        c1.call(runtime2, ());
+        let p1 = self.p1;
+        let p2 = self.p2;
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            p1.call(runtime, next)
+        } else {
+            let c = Box::new(
+                move |runtime2: &mut Runtime, emited: bool| {
+                    if emited {
+                        p1.call(runtime2, next);
+                    } else {
+                        p2.call(runtime2, next);
                     }
                 }
-            ));
-            runtime.on_end_of_instant(Box::new(
-                move |runtime2: &mut Runtime, ()|{
-                    if !*(is_present2.borrow_mut()) {
-                        *(is_present2.borrow_mut()) = true;
-                        c2.call(runtime2, ());
+            );
+            self.signal_runtime_ref.runtime.present.borrow_mut().push(c);
+
+            let sig = self.signal_runtime_ref.clone();
+            let c2 = Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    let mut present = sig.runtime.present.borrow_mut();
+                    while let Some(c) = present.pop() {
+                        c.call_box(runtime2, false);
                     }
-                    next.call(runtime2, ());
-                })
-            )
+                }
+            );
+            runtime.on_end_of_instant(c2);
         }
     }
-}*/
+}
 
-/*impl ProcessMut for Present {
-    // TODO
+impl<P1, P2, V> ProcessMut for Present<P1, P2> where P1: ProcessMut<Value = V>, P2: ProcessMut<Value = V> {
+    fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
+        let signal = self.signal_runtime_ref.clone();
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let p2 = self.p2;
+            let c = |runtime2: &mut Runtime, (process, value): (P1, P1::Value)| {
+                next.call(runtime2, (Present { signal_runtime_ref: signal, p1: process, p2 }, value))
+            };
+            self.p1.call_mut(runtime, c);
+        } else {
+            let sig = self.signal_runtime_ref.clone();
+            let c = Box::new(
+                move |runtime2: &mut Runtime, emited: bool| {
+                    if emited {
+                        let p2 = self.p2;
+                        let c2 = |runtime2: &mut Runtime, (process, value): (P1, P1::Value)| {
+                            next.call(runtime2, (Present { signal_runtime_ref: signal, p1: process, p2 }, value))
+                        };
+                        self.p1.call_mut(runtime2, c2);
+                    } else {
+                        let p1 = self.p1;
+                        let c2 = |runtime2: &mut Runtime, (process, value): (P2, P2::Value)| {
+                            next.call(runtime2, (Present { signal_runtime_ref: signal, p1, p2: process }, value))
+                        };
+                        self.p2.call_mut(runtime2, c2);
+                    }
+                }
+            );
+            sig.runtime.present.borrow_mut().push(c);
+
+            let c2 = Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    let mut present = sig.runtime.present.borrow_mut();
+                    while let Some(c) = present.pop() {
+                        c.call_box(runtime2, false);
+                    }
+                }
+            );
+            runtime.on_end_of_instant(c2);
+        }
+    }
 }*/
 
 
@@ -358,7 +426,25 @@ struct SimpleSignal {}
 
 ///IMPLEMENTATION OF SIGNALS WITH MULTIPLE CONSUMPTION
 
-struct MCSignal {}
+struct MCSignal<V> {
+    value: RefCell<V>,
+    default_value: V,
+}
+
+impl<V> SignalIO for MCSignal<V> where V: Clone{
+    type Value = V;
+    fn set(&self, v: V) {
+        *self.value.borrow_mut() = v;
+    }
+
+    fn get(&self) -> V {
+        self.value.borrow().clone()
+    }
+
+    fn reset_value(&self) {
+        *self.value.borrow_mut() = self.default_value.clone()
+    }
+}
 
 ///IMPLEMENTATION OF SIGNALS WITH SIMPLE CONSUMPTION
 
