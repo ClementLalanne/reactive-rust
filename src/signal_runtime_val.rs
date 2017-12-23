@@ -212,7 +212,6 @@ impl<SIO> Process for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     }
 }
 
-
 impl<SIO> ProcessMut for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
@@ -423,14 +422,33 @@ impl<SIO, P1, P2, V> ProcessMut for Present<SIO, P1, P2> where SIO: SignalIO + '
 
 
 ///IMPLEMENTATION OF SIMPLE SIGNALS
+pub struct SimpleSignalIO {}
 
-struct SimpleSignal {}
+impl SimpleSignalIO {
+    pub fn new() -> SimpleSignalIO {
+        SimpleSignalIO { }
+    }
+}
 
-/*impl SignalIO for SimpleSignal {
+impl SignalIO for SimpleSignalIO {
     type Value = ();
+    fn set(&self, v: ()) {}
+    fn get(&self) -> () { () }
+    fn reset_value(&self) {}
+}
 
+pub struct SimpleSignal<V> where V: SignalIO<Value = ()> {
+    signal: SignalRuntimeRef<V>,
+}
 
-}*/
+impl<V> SimpleSignal<V> where V: SignalIO<Value = ()> {
+    pub fn new() -> SimpleSignal<SimpleSignalIO> {
+        let signal = SignalRuntimeRef::new(SimpleSignalIO::new());
+        SimpleSignal {
+            signal,
+        }
+    }
+}
 
 ///IMPLEMENTATION OF SIGNALS WITH MULTIPLE CONSUMPTION
 pub struct MCSignalIO<V> {
@@ -475,10 +493,9 @@ impl<V> MCSignal<V> where V: SignalIO + 'static {
         }
     }
 }
+
 impl<V> Signal<V> for MCSignal<V> where V: SignalIO{
     fn runtime(self) -> SignalRuntimeRef<V> {
         self.signal.clone()
     }
 }
-
-struct SCSignal {}
