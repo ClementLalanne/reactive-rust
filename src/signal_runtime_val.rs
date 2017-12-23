@@ -126,11 +126,11 @@ pub trait Signal<SIO> where SIO: SignalIO {
         }
     }
 
-    /*fn await_in(self) -> AwaitIn<SIO> where Self: Sized {
+    fn await_in(self) -> AwaitIn<SIO> where Self: Sized {
         AwaitIn {
             signal_runtime_ref : self.runtime()
         }
-    }*/
+    }
 
     fn present<P1, P2, V>(self, p1: P1, p2: P2) -> Present<SIO, P1, P2>  where P1: Process<Value = V>, P2: Process<Value = V>, Self: Sized{
         Present {
@@ -252,7 +252,7 @@ impl<SIO> Process for Await <SIO> where SIO: SignalIO + 'static{
     type Value = ();
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
-        if *(self.signal_runtime_ref.runtime.is_emited.borrow_mut()) {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
             runtime.on_next_instant(Box::new(next))
         } else {
             self.signal_runtime_ref.runtime.await.borrow_mut().push(Box::new(next))
@@ -270,6 +270,31 @@ impl<SIO> ProcessMut for Await <SIO> where SIO: SignalIO + 'static{
             runtime.on_next_instant(c);
         } else {
             self.signal_runtime_ref.runtime.await.borrow_mut().push(c);
+        }
+    }
+}
+
+struct AwaitIn<SIO> where SIO: SignalIO {
+    signal_runtime_ref : SignalRuntimeRef<SIO>
+}
+
+impl<SIO> Process for AwaitIn <SIO> where SIO: SignalIO + 'static{
+    type Value = SIO::Value;
+
+    fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
+        if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
+            let v = self.signal_runtime_ref.runtime.io.get();
+            let c2 = Box::new(
+                move |runtime2: &mut Runtime, ()| {
+                    next.call(runtime2, v);
+                }
+            );
+            runtime.on_next_instant(c2);
+        } else {
+            let c2 = Box::new(move |runtime2: &mut Runtime, v: SIO::Value| {
+                next.call(runtime2, v)
+            });
+            self.signal_runtime_ref.runtime.await_in.borrow_mut().push(c2)
         }
     }
 }
