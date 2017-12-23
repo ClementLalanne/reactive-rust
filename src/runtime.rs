@@ -11,7 +11,7 @@ pub struct Runtime {
 
 /// IMPLEMENTATION DE RUNTIME
 impl Runtime {
-    
+
     /// CREATION D'UN RUNTIME
     pub fn new() -> Self {
         Runtime {
