@@ -66,7 +66,7 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
         }
 
 
-
+        //AWAIT_IMMEDIATE_IN
         let mut await_immediate_in = self.runtime.await_immediate_in.borrow_mut();
         while let Some(c) = await_immediate_in.pop() {
             let v = self.runtime.io.get();
@@ -76,6 +76,9 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
             runtime.on_current_instant(c2)
         }
 
+        // AWAIT and AWAIT_IN
+        // If the signal is at multiple consumption we execute all the AWAIT and AWAIT_IN
+        // Otherwise we only execute one arbitrary chosen
         if !self.runtime.io.is_simple(){
             let mut await = self.runtime.await.borrow_mut();
             while let Some(c) = await.pop() {
@@ -107,7 +110,6 @@ impl<SIO> SignalRuntimeRef<SIO> where SIO: SignalIO + 'static {
                         c.call_box(runtime2, v);
                     });
                     runtime.on_next_instant(c2);
-                    treated = true;
                     break;
                 }
             }
