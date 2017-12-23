@@ -4,6 +4,8 @@ use process::Process;
 use process::ProcessMut;
 use signal_runtime_val::Signal;
 use signal_runtime_val::MCSignal;
+use signal_runtime_val::MCSignalIO;
+use process::Value;
 
 fn main(){
     let mut runtime = Runtime::new();
@@ -12,46 +14,46 @@ fn main(){
     //Masse du second point
     let m2 = 1.;
     //Initialisation du signal qui contiendra les positions du point 1
-    let s_pos_p1 = MCSignal::new(0.);
+    let s_pos_p1 = MCSignal::new(MCSignalIO::new(0.));
     //Initialisation du signal qui contiendra les vitesses du point 1
-    //let s_vit_p1 = MCSignal::new(0.);
+    let s_vit_p1 = MCSignal::new(MCSignalIO::new(0.));
     //Initialisation du signal qui contiendra les positions du point 2
-    //let s_pos_p2 = MCSignal::new(0.);
+    let s_pos_p2 = MCSignal::new(MCSignalIO::new(0.));
     //Initialisation du signal qui contiendra les vitesses du point 2
-    //let s_vit_p2 = MCSignal::new(0.);
+    let s_vit_p2 = MCSignal::new(MCSignalIO::new(0.));
     //Un processus renvoyant la position du point 1
-    //let pos_p1 = s_pos_p1.await_in();
+    let pos_p1 = s_pos_p1.await_in();
     //Un processus renvoyant la vitesse du point 1
-    //let vit_p1 = s_vit_p2.await_in();
+    let vit_p1 = s_vit_p1.await_in();
     //Un processus renvoyant la position du point 2
-    //let pos_p2 = s_pos_p2.await_in();
+    let pos_p2 = s_pos_p2.await_in();
     //Un processus renvoyant la vitesse du point 2
-    //let vit_p2 = s_vit_p2.await_in();
+    let vit_p2 = s_vit_p2.await_in();
     //Constante de raideur du ressort
-    //let k = 10.;
+    let k = 10.;
     //Longueur à l'équilibre du ressort
-    //let l0 = 1.;
+    let l0 = 1.;
     //durée entre deux instants
-    //let dt = 0.01;
+    let dt = 0.01;
     //Processus renvoyant la position d'origine du point 1
-    //let pos_p1_0 = Value::new(0.);
+    let pos_p1_0 = Value::new(0.);
     //Processus renvoyant la vitesse d'origine du point 1
-    //let vit_p1_0 = Value::new(0.);
+    let vit_p1_0 = Value::new(0.);
     //Processus renvoyant la position d'origine du point 2
-    //let pos_p2_0 = Value::new(2.);
+    let pos_p2_0 = Value::new(2.);
     //Processus renvoyant la vitesse d'origine du point 1
-    //let vit_p2_0 = Value::new(0.);
+    let vit_p2_0 = Value::new(0.);
 
     //Un processus qui lit les deux valeurs des positions et le affiche à l'ecran
-    /*let printer = ((s_pos_p1.await_in()).join(s_pos_p2.await_in())).map(|x1: fsize, x2: fsize|{
-        !println!("{}", x1);
-        !println!("{}", x2);
-    } )*/
+    let printer = ((pos_p1).join(pos_p2)).map(|(x1, x2)|{
+        println!("{}", x1);
+        println!("{}", x2);
+    } );
 
     //Un processus qui actualise la valeur de v1
-    /*let pos_p1_update = s_pos_p1.emit(((s_pos_p1.await_in()).join(s_vit_p1.await_in())).map(|x1: fsize, v1: fsize|{
+    let pos_p1_update = s_pos_p1.emit(((s_pos_p1.await_in()).join(s_vit_p1.await_in())).map(|(x1, v1)|{
         x1 + v1 * dt
-    } ))*/
+    } ));
 
     //Un processus qui actualise la valeur de v2
     /*let pos_p2_update = s_pos_p1.emit(((s_pos_p2.await_in()).join(s_vit_p2.await_in())).map(|x2: fsize, v2: fsize|{
