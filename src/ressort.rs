@@ -10,17 +10,17 @@ fn main(){
     //Masse du premier point
     let m1 = 10.;
     //Masse du second point
-    //let m2 = 1.;
+    let m2 = 1.;
     //Initialisation du signal qui contiendra les positions du point 1
     let s_pos_p1 = MCSignal::new(0.);
     //Initialisation du signal qui contiendra les vitesses du point 1
-    let s_vit_p1 = MCSignal::new(0.);
+    //let s_vit_p1 = MCSignal::new(0.);
     //Initialisation du signal qui contiendra les positions du point 2
-    let s_pos_p2 = MCSignal::new(0.);
+    //let s_pos_p2 = MCSignal::new(0.);
     //Initialisation du signal qui contiendra les vitesses du point 2
-    let s_vit_p2 = MCSignal::new(0.);
+    //let s_vit_p2 = MCSignal::new(0.);
     //Un processus renvoyant la position du point 1
-    let pos_p1 = s_pos_p1.await_in();
+    //let pos_p1 = s_pos_p1.await_in();
     //Un processus renvoyant la vitesse du point 1
     //let vit_p1 = s_vit_p2.await_in();
     //Un processus renvoyant la position du point 2

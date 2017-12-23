@@ -433,22 +433,22 @@ struct SimpleSignal {}
 }*/
 
 ///IMPLEMENTATION OF SIGNALS WITH MULTIPLE CONSUMPTION
-pub struct MCSignal<V> {
+pub struct MCSignalIO<V> {
     value: RefCell<V>,
     default_value: V,
 }
 
-impl<V> MCSignal<V>
+impl<V> MCSignalIO<V>
     where V: Clone {
-    pub fn new(default_value: V) -> MCSignal<V> {
-        MCSignal {
+    pub fn new(default_value: V) -> MCSignalIO<V> {
+        MCSignalIO {
             value: RefCell::new(default_value.clone()),
             default_value,
         }
     }
 }
 
-impl<V> SignalIO for MCSignal<V> where V: Clone{
+impl<V> SignalIO for MCSignalIO<V> where V: Clone{
     type Value = V;
     fn set(&self, v: V) {
         *self.value.borrow_mut() = v;
@@ -463,19 +463,19 @@ impl<V> SignalIO for MCSignal<V> where V: Clone{
     }
 }
 
-pub struct PureMCSignal<V> where V: SignalIO{
+pub struct MCSignal<V> where V: SignalIO{
     signal: SignalRuntimeRef<V>,
 }
 
-impl<V> PureMCSignal<V> where V: SignalIO + 'static {
+impl<V> MCSignal<V> where V: SignalIO + 'static {
     pub fn new(v: V) -> Self {
         let signal = SignalRuntimeRef::new(v);
-        PureMCSignal {
+        MCSignal {
             signal,
         }
     }
 }
-impl<V> Signal<V> for PureMCSignal<V> where V: SignalIO{
+impl<V> Signal<V> for MCSignal<V> where V: SignalIO{
     fn runtime(self) -> SignalRuntimeRef<V> {
         self.signal.clone()
     }
