@@ -424,7 +424,7 @@ impl<SIO, P1, P2, V> ProcessMut for Present<SIO, P1, P2> where SIO: SignalIO + '
 ///IMPLEMENTATION OF SIMPLE SIGNALS
 pub struct SimpleSignalIO {}
 
-impl SimpleSignalIO where Self: Sized + 'static{
+impl SimpleSignalIO {
     pub fn new() -> SimpleSignalIO {
         SimpleSignalIO { }
     }
@@ -441,7 +441,7 @@ pub struct SimpleSignal<V> where V: SignalIO<Value = ()> {
     signal: SignalRuntimeRef<V>,
 }
 
-impl<V> SimpleSignal<V> where V: SignalIO<Value = ()> + 'static {
+impl<V> SimpleSignal<V> where V: SignalIO<Value = ()> {
     pub fn new() -> SimpleSignal<SimpleSignalIO> {
         let signal = SignalRuntimeRef::new(SimpleSignalIO::new());
         SimpleSignal {
