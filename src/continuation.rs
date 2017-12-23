@@ -27,7 +27,7 @@ pub trait Continuation<V>: 'static {
 
 /// IMPLEMENTATION DE CONTINUATION
 impl<V, F> Continuation<V> for F where F: FnOnce(&mut Runtime, V) + 'static {
-    
+
     fn call(self, runtime: &mut Runtime, value: V)  {
         self(runtime, value);
     }
@@ -42,6 +42,7 @@ pub struct Map<C, F> {
     continuation: C,
     map: F
 }
+
 impl<C, F, X, Y> Continuation<X> for Map<C, F> where C: Continuation<Y>, F: FnOnce(X) -> Y + 'static {
 
     fn call(self, runtime: &mut Runtime, value: X) {
