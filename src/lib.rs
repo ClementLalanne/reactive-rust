@@ -1,8 +1,7 @@
 mod runtime;
 mod continuation;
 mod process;
-mod signal_runtime;
-mod signal_runtime_val;
+mod signal;
 #[cfg(test)]
 mod tests {
     #[test]
