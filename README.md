@@ -1,5 +1,7 @@
 # Reactive-Rust
 
+LALANNE Clément, MAROTTE Joseph.
+
 Implémentation des bases de reactiveML avec le langage de programmation Rust.
 
 ## Différents fichiers:
@@ -10,4 +12,4 @@ continuation.rs : la structure des continuations
 
 process.rs : les process (mutables ou non)
 
-signal_runtime_val.rs : les signaux
+signal.rs : les signaux
