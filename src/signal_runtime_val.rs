@@ -330,13 +330,7 @@ pub struct Present<SIO, P1, P2> where SIO: SignalIO + 'static {
     p2: P2,
 }
 
-/*pub struct Present<P1, P2> {
-    signal_runtime_ref: SignalRuntimeRef,
-    p1: P1,
-    p2: P2,
-}
-
-impl<P1, P2, V> Process for Present<P1, P2> where P1: Process<Value = V>, P2: Process<Value = V> {
+impl<SIO, P1, P2, V> Process for Present<SIO, P1, P2> where SIO: SignalIO + 'static, P1: Process<Value = V>, P2: Process<Value = V> {
     type Value = V;
 
     fn call<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<Self::Value> {
@@ -370,7 +364,7 @@ impl<P1, P2, V> Process for Present<P1, P2> where P1: Process<Value = V>, P2: Pr
     }
 }
 
-impl<P1, P2, V> ProcessMut for Present<P1, P2> where P1: ProcessMut<Value = V>, P2: ProcessMut<Value = V> {
+impl<SIO, P1, P2, V> ProcessMut for Present<SIO, P1, P2> where SIO: SignalIO + 'static, P1: ProcessMut<Value = V>, P2: ProcessMut<Value = V> {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
         let signal = self.signal_runtime_ref.clone();
         if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
@@ -411,7 +405,7 @@ impl<P1, P2, V> ProcessMut for Present<P1, P2> where P1: ProcessMut<Value = V>, 
             runtime.on_end_of_instant(c2);
         }
     }
-}*/
+}
 
 
 ///IMPLEMENTATION OF SIMPLE SIGNALS
