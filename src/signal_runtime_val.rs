@@ -212,7 +212,6 @@ impl<SIO> Process for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     }
 }
 
-
 impl<SIO> ProcessMut for AwaitImmediate<SIO> where SIO: SignalIO + 'static {
     fn call_mut<C>(self, runtime: &mut Runtime, next: C) where C: Continuation<(Self, Self::Value)> {
         if *(self.signal_runtime_ref.runtime.is_emited.borrow()) {
@@ -422,47 +421,6 @@ impl<SIO, P1, P2, V> ProcessMut for Present<SIO, P1, P2> where SIO: SignalIO + '
 }
 
 
-///IMPLEMENTATION OF SIMPLE SIGNALS
-/*pub struct SimpleSignalIO {}
-
-impl SimpleSignalIO {
-    pub fn new() -> SimpleSignalIO {
-        SimpleSignalIO {
-        }
-    }
-}
-
-impl SignalIO for SimpleSignalIO {
-    type Value = ();
-
-    fn set(&self, v: ()) {}
-
-    fn get(&self) { () }
-
-    fn reset_value(&self) { }
-}
-
-pub struct SimpleSignal<V> where V: SignalIO{
-    signal: SignalRuntimeRef<V>
-}
-
-impl<V> MCSignal<V> where V: SignalIO + 'static {
-    pub fn new() -> Self {
-        let signal = SignalRuntimeRef::new();
-        MCSignal {
-            signal,
-        }
-    }
-}*/
-
-/*impl SimpleSignal {
-    pub fn new() -> Self {
-        let signal = SignalRuntimeRef::new(SimpleSignalIO::new());
-        SimpleSignal {
-            signal
-        }
-    }
-}*/
 ///IMPLEMENTATION OF SIMPLE SIGNALS
 pub struct SimpleSignalIO {}
 
